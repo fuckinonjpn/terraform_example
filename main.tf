@@ -72,5 +72,81 @@ resource "aws_s3_bucket_access_block" "private" {
 
 resource "aws_s3_bucket" "public" {
   bucket = "public-pragmatic-terraform"
+  # アクセス権限
   acl    = "public-read"
+  # 許可するオリジン、メソッドを追加
+  cors_rule {
+    allowed_origins = ["https://example.com"]
+    allowed_headers = ["*"]
+    max_age_seconds = 3000
+  }
+}
+
+resource "aws_bucket" "alb_log" {
+  bucket = "alb-log-progmatic-terraform"
+  # 180日経ったものは自動削除
+  lifecycle_rule {
+    enabled = true
+    expiration {
+      days = "180"
+    }
+  }
+}
+
+# パケットポリシー　ALBなど書き込みを行う時に必要
+resource "aws_s3_bucket_policy" "aws_log" {
+  bucket = aws_s3_bucket.alb_log.id 
+  policy = data.aws_iam_policy_document.aws_log.json
+}
+
+data "aws_iam_policy_document" "aws_log" {
+  statement {
+    effect = "Allow"
+    actions = ["s3.PutObject"]
+    resources = ["arn:aws:s3:::${aws_s3_bucket.alb_log.id}/*"]
+
+    principals {
+      type = "AWS"
+      identifiers = ["644885757165"]
+    }
+  }
+}
+
+## S3の削除
+# resource "aws_s3_bucket" "force_destroy" {
+#   bucket = "force-destroy-progmatic-terraform"
+#   force_destroy = true
+# }
+
+resource "aws_vpc" "example" {
+  cidr_block = "10.0.0.0/16"
+  enable_dns_support = true 
+  enable_dns_hostnames = true 
+  tags = {
+    Name = "example"
+  }
+}
+
+resource "aws_subnet" "public" {
+  vpc_id = aws_vpc.example.id
+  cidr_block = "10.0.0.0/24"
+   # 自動的なパブリックIPアドレスの割当
+  map_public_ip_on_launch = true 
+  availability_zone = "ap-northeast-1a"
+}
+
+resource "aws_internet_gateway" "example" {
+  vpc_id = aws_vpc.example.id
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.example.id
+  # VPC以外への通信をデータを流す
+  gateway_id = aws_internet_gateway.public.id 
+  destination_cidr_block = "0.0.0.0/0"
+}
+
+resource "aws_route_table_association" "public" { 
+  subnet_id = aws_subnet.public.id 
+  route_table_id = aws_route_table.public.id
 }
